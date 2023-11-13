@@ -19,20 +19,22 @@ package localstorage
 import (
 	"context"
 	"errors"
+	"sort"
+	"strconv"
+	"strings"
+
 	carinav1 "github.com/carina-io/carina-api/api/v1"
 	carinav1beta1 "github.com/carina-io/carina-api/api/v1beta1"
 	carina "github.com/carina-io/carina/scheduler"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
-	"sort"
-	"strconv"
-	"strings"
 
 	"k8s.io/client-go/dynamic"
 
 	"github.com/carina-io/carina/scheduler/configuration"
 	"github.com/carina-io/carina/scheduler/utils"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	lcorev1 "k8s.io/client-go/listers/core/v1"
 	lstoragev1 "k8s.io/client-go/listers/storage/v1"
@@ -49,6 +51,7 @@ type LocalStorage struct {
 	scLister      lstoragev1.StorageClassLister
 	pvcLister     lcorev1.PersistentVolumeClaimLister
 	pvLister      lcorev1.PersistentVolumeLister
+	podLister     lcorev1.PodLister
 	lvLister      cache.GenericLister
 	nsrLister     cache.GenericLister
 	dynamicClient dynamic.Interface
@@ -67,6 +70,8 @@ func New(_ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 	scLister := handle.SharedInformerFactory().Storage().V1().StorageClasses().Lister()
 	pvcLister := handle.SharedInformerFactory().Core().V1().PersistentVolumeClaims().Lister()
 	pvLister := handle.SharedInformerFactory().Core().V1().PersistentVolumes().Lister()
+	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
+
 	dynamicClient := newDynamicClientFromConfig()
 	dynamicSharedInformerFactory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dynamicClient, 0, v1.NamespaceAll, nil)
 	lvLister := dynamicSharedInformerFactory.ForResource(carinav1.GroupVersion.WithResource("logicvolumes")).Lister()
@@ -79,6 +84,7 @@ func New(_ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 		pvcLister:     pvcLister,
 		scLister:      scLister,
 		pvLister:      pvLister,
+		podLister:     podLister,
 		lvLister:      lvLister,
 		nsrLister:     nsrLister,
 		dynamicClient: dynamicClient,
@@ -105,6 +111,11 @@ func (ls *LocalStorage) Filter(ctx context.Context, cycleState *framework.CycleS
 
 	if len(pvcRequestMap) == 0 {
 		return framework.NewStatus(framework.Success, "")
+	}
+
+	if configuration.SchedulerStrategy() == configuration.SchedulerExclusive && ls.checkIfNodeHasSameStatefulSet(pod, node) {
+		klog.V(3).Infof("scheduler will use lyyyuna's exclusive strategy")
+		return framework.NewStatus(framework.UnschedulableAndUnresolvable, "node has same statefulset pod")
 	}
 
 	allocatableMap, err := ls.getAllocatableMap(useRaw, pod.Name, node.Node().Name)
@@ -197,6 +208,9 @@ func (ls *LocalStorage) Score(ctx context.Context, state *framework.CycleState, 
 
 		count++
 		if configuration.SchedulerStrategy() == configuration.Schedulerspreadout {
+			scoref += 1.0 - float64(requestTotalGb)/float64(allocatableTotal)
+		}
+		if configuration.SchedulerStrategy() == configuration.SchedulerExclusive {
 			scoref += 1.0 - float64(requestTotalGb)/float64(allocatableTotal)
 		}
 		if configuration.SchedulerStrategy() == configuration.SchedulerBinpack {
@@ -364,4 +378,52 @@ func minimumValueMinus(array []int64, pvcR *pvcRequest) int {
 	}
 
 	return index
+}
+
+// checkIfNodeHasSameStatefulSet 检查该节点是否已经有相同 statefulset 的 pod 被调度
+func (ls *LocalStorage) checkIfNodeHasSameStatefulSet(pod *v1.Pod, node *framework.NodeInfo) bool {
+	namespace := pod.Namespace
+	podName := pod.Name
+
+	owners := pod.GetObjectMeta().GetOwnerReferences()
+	if len(owners) == 0 {
+		klog.V(3).Infof("no controller owner found for pod %v", podName)
+		return false
+	}
+
+	firstOwner := owners[0]
+	if firstOwner.Kind != "StatefulSet" {
+		klog.V(3).Infof("the controller is %v, not Statefulset, for pod %v", firstOwner.Kind, podName)
+		return false
+	}
+
+	stName := firstOwner.Name
+
+	allPods, err := ls.podLister.Pods(namespace).List(labels.NewSelector())
+	if err != nil || len(allPods) == 0 {
+		klog.V(3).Infof("fail to list on namespace %v, err: %v", namespace, err)
+		return false
+	}
+
+	for _, otherPod := range allPods {
+		owners := otherPod.GetObjectMeta().GetOwnerReferences()
+		if len(owners) == 0 {
+			continue
+		}
+
+		firstOwner := owners[0]
+		if firstOwner.Kind != "StatefulSet" {
+			continue
+		}
+
+		// 如果 statefuleset 名字相同，检查是否已经在 node 节点上
+		if firstOwner.Name == stName {
+			if otherPod.Spec.NodeName == node.Node().Name {
+				klog.V(3).Infof("the node [%v] already has a statefulset [%v] pod, so skip for pod [%v]", node.Node().Name, stName, podName)
+				return true
+			}
+		}
+	}
+
+	return false
 }

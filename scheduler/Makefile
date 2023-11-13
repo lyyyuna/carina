@@ -1,6 +1,6 @@
 
-IMAGE_REPOSITORY=registry.cn-hangzhou.aliyuncs.com/carina
-VERSION ?= latest
+IMAGE_REPOSITORY=aslan-spock-register.qiniu.io/kodo-carina
+VERSION ?= 20231114
 DATE=$(shell date '+%Y%m%d%H%M%S')
 ARCH ?= linux/arm64,linux/amd64
 

@@ -18,10 +18,11 @@ package configuration
 
 import (
 	"fmt"
-	"k8s.io/klog/v2"
 	"os"
 	"reflect"
 	"strings"
+
+	"k8s.io/klog/v2"
 
 	"github.com/carina-io/carina/scheduler/utils"
 	"github.com/fsnotify/fsnotify"
@@ -34,6 +35,7 @@ const (
 	configPath         = "/etc/carina/"
 	SchedulerBinpack   = "binpack"
 	Schedulerspreadout = "spreadout"
+	SchedulerExclusive = "exclusive"
 )
 
 var testAssistDiskSelector []string
@@ -107,7 +109,7 @@ func dynamicConfig() {
 // SchedulerStrategy pv调度策略binpac/spreadout，默认为binpac
 func SchedulerStrategy() string {
 	schedulerStrategy := GlobalConfig.GetString("schedulerStrategy")
-	if utils.ContainsString([]string{SchedulerBinpack, Schedulerspreadout}, strings.ToLower(schedulerStrategy)) {
+	if utils.ContainsString([]string{SchedulerBinpack, Schedulerspreadout, SchedulerExclusive}, strings.ToLower(schedulerStrategy)) {
 		schedulerStrategy = strings.ToLower(schedulerStrategy)
 	} else {
 		schedulerStrategy = SchedulerBinpack

@@ -175,7 +175,7 @@ func validate(disk Disk) error {
 	vgGroup := make(map[string]bool)
 	var diskNameRegexp = regexp.MustCompile("^([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]$")
 	var diskScanRegexp = regexp.MustCompile("(?i)^([0-9]*)?$")
-	var schedulerStrategyRegexp = regexp.MustCompile("(?i)^(spreadout|binpack)?$")
+	var schedulerStrategyRegexp = regexp.MustCompile("(?i)^(spreadout|binpack|exclusive)?$")
 
 	if !diskScanRegexp.MatchString(strconv.FormatInt(disk.DiskScanInterval, 10)) {
 		return fmt.Errorf("diskScanInterval must be a number: %s", strconv.FormatInt(disk.DiskScanInterval, 10))

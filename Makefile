@@ -12,8 +12,8 @@ IMG ?= carina:raw
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 
-IMAGE_REPOSITORY=registry.cn-hangzhou.aliyuncs.com/carina
-VERSION ?= latest
+IMAGE_REPOSITORY=aslan-spock-register.qiniu.io/kodo-carina
+VERSION ?= 20240218
 
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
